@@ -1,0 +1,66 @@
+:root {
+  --ink: #f3e6d8;
+  --ink-dim: rgba(243, 230, 216, 0.55);
+  --panel: rgba(30, 14, 9, 0.55);
+  --line: rgba(243, 230, 216, 0.16);
+  --accent: #f2c38b;
+  font-family: ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1a0d09;
+  color: var(--ink);
+  user-select: none;
+}
+#scene { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
+
+.brand {
+  position: fixed; top: 18px; left: 22px;
+  font-size: 14px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-dim); pointer-events: none;
+}
+
+.controls { position: fixed; top: 14px; right: 16px; display: flex; gap: 8px; }
+button {
+  font: inherit; font-size: 13px; color: var(--ink);
+  padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel);
+  backdrop-filter: blur(8px);
+  transition: transform 0.15s cubic-bezier(.3,1.6,.5,1), background 0.15s, border-color 0.15s;
+}
+button:hover { transform: translateY(-1px) scale(1.04); border-color: rgba(243,230,216,.35); }
+button:active { transform: scale(0.96); }
+button.primary { background: rgba(242, 195, 139, 0.18); border-color: rgba(242, 195, 139, 0.45); color: #ffe9cf; }
+
+.hint {
+  position: fixed; top: 44px; left: 22px; font-size: 12px; color: rgba(243,230,216,.32);
+  pointer-events: none;
+}
+kbd { font: inherit; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; }
+
+#empty {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  text-align: center; pointer-events: none; opacity: 0; transition: opacity .4s;
+}
+#empty.show { opacity: 1; }
+#empty p { margin: 6px 0; font-size: 17px; }
+#empty .sub { font-size: 13px; color: var(--ink-dim); }
+
+#toast {
+  position: fixed; left: 50%; top: 18px; transform: translate(-50%, -8px);
+  padding: 8px 16px; border-radius: 999px; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(8px);
+  opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+#dropzone {
+  position: fixed; inset: 14px; border: 2px dashed rgba(242,195,139,.55); border-radius: 22px;
+  display: grid; place-items: center; font-size: 20px; color: #ffe9cf;
+  background: rgba(26, 13, 9, 0.35); opacity: 0; pointer-events: none; transition: opacity .2s;
+}
+#dropzone.show { opacity: 1; }
+button.armed { border-color: rgba(255, 140, 110, 0.7); color: #ffc9b8; }

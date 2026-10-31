@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>holo-cards</title>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div class="brand">holo&#8209;cards</div>
+
+    <div class="controls">
+      <button id="mute" class="ghost">Sound on</button>
+      <button id="clear" class="ghost">Clear</button>
+      <button id="add" class="primary">+ Add photos</button>
+      <input id="file" type="file" accept="image/*" multiple hidden />
+    </div>
+
+    <div class="hint">
+      drag to move · drop above the hand to leave it on the table · double-click to inspect · <kbd>Del</kbd> removes
+    </div>
+
+    <div id="empty">
+      <p>Drop images anywhere, paste, or use <b>+ Add photos</b>.</p>
+      <p class="sub">Backgrounds are removed automatically. Everything stays in your browser.</p>
+    </div>
+
+    <div id="toast"></div>
+    <div id="dropzone"><div>Drop images to make cards</div></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
