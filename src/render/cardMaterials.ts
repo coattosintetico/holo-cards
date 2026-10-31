@@ -36,6 +36,7 @@ export function createCardMaterial(art: THREE.Texture, backdrop: THREE.Texture):
       uTime: { value: 0 },
       uHover: { value: 0 },
       uDim: { value: 0 },
+      uPending: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -63,6 +64,7 @@ export function createCardMaterial(art: THREE.Texture, backdrop: THREE.Texture):
       uniform float uTime;
       uniform float uHover;
       uniform float uDim;
+      uniform float uPending;
       varying vec2 vUv;
       varying vec3 vWorld;
       varying vec3 vT;
@@ -139,6 +141,19 @@ export function createCardMaterial(art: THREE.Texture, backdrop: THREE.Texture):
         col += rim * (0.28 + 1.5 * fres) + inner;
         col += irid * bev * 0.07;
         col += fres * 0.12 + uHover * 0.015;
+
+        // Still processing: shimmer sweep + a small spinning arc.
+        if (uPending > 0.001) {
+          float sweep = fract(uTime * 0.55) * 1.8 - 0.4;
+          float sb = exp(-pow((vUv.x * 0.4 + vUv.y * 0.6) - sweep, 2.0) / 0.006);
+          col += sb * 0.10 * uPending;
+          float r = length(p);
+          float ang = atan(p.y, p.x) / 6.28318 + 0.5;
+          float ring = 1.0 - smoothstep(0.0, 0.018, abs(r - 0.26));
+          float arc = fract(ang + uTime * 0.9);
+          arc = smoothstep(0.25, 1.0, arc);
+          col += vec3(1.0, 0.9, 0.78) * ring * (0.08 + 0.5 * arc) * uPending;
+        }
 
         gl_FragColor = vec4(col, alpha);
       }`,

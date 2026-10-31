@@ -14,24 +14,28 @@ npm install
 npm run dev
 ```
 
-Desktop browsers with WebGL2 only for now.
+Works on desktop and phones (WebGL2 required).
 
 ## Use
 
 - **Add photos** (button, drag & drop anywhere, or paste). The background is removed automatically, the subject is cropped to its content and fitted to the card.
   Images that already have transparency skip the ML step.
-- **Drag** cards around. Drop above the hand to leave a card on the table; drop into the hand to reorder.
-- **Double-click** to inspect a card up close (move the mouse to tilt it). Click or `Esc` to put it back.
-- **Del / Backspace** removes the hovered card.
+- Photos are processed in a background worker: a shimmering placeholder card holds the slot while you keep playing. The first photo downloads the model once (~40–80 MB); after that each photo takes a few seconds.
+- Your first upload replaces the sample cards (with Undo).
+- **Drag** cards around (press & drag on touch). Drop above the hand to leave a card on the table; drop into the hand to reorder.
+- **Double-click / double-tap** to inspect a card up close: it tilts with the mouse, your finger, or, on phones, with **Tilt with phone** (motion sensor; iOS asks for permission). From there you can **Remove** it.
+- **Del / Backspace** removes the hovered card on desktop.
 - Your deck is saved in IndexedDB.
 
 ## How it works
 
 | Piece | Where | Notes |
 | --- | --- | --- |
-| Image pipeline | `src/pipeline/` | `@imgly/background-removal` (ONNX in the browser, lazy-loaded) → alpha bounding-box crop with a noise floor → contain-fit into the card's art window. |
+| Image pipeline | `src/pipeline/` | Runs in a Web Worker (`worker.ts`, main-thread fallback in `client.ts`). `@imgly/background-removal` (ONNX in the browser, lazy-loaded; smaller quantised model on phones) → alpha bounding-box crop with a noise floor → contain-fit into the card's art window, all on OffscreenCanvas. |
 | Plastic card | `src/render/cardMaterials.ts` | Custom shader: rounded-rect SDF, bevelled edge normals, refraction of the backdrop with slight dispersion, specular, a glare band driven by tilt, thin-film tint on the rim. |
-| Refraction backdrop | `src/app.ts` (`frame`) | Cards are drawn back-to-front. Before each card the framebuffer is copied to a texture, so stacked cards refract each other, not just the table. |
+| Refraction backdrop | `src/app.ts` (`copyBackdrop`) | Cards are drawn back-to-front. Before each card, only the screen rect it can sample is copied from the framebuffer, so stacked cards refract each other and phones don't pay for full-screen copies. |
+| Responsive scale | `src/app.ts` (`resize`) | The visible table grows on narrow screens so a card is at most ~¼ of the width; the hand fan keeps its outer edges on screen. |
+| Phone tilt | `src/interaction/tilt.ts` | DeviceOrientation mapped to screen axes, with a slowly re-centring neutral pose. |
 | Shadows | `src/render/cardMaterials.ts` | Art alpha sampled from a blurred mip level; offset and softness grow with lift. |
 | Tablecloth | `src/render/table.ts` | Procedural plain-weave linen under a warm lamp pool, dithered. |
 | Feel | `src/physics/spring.ts`, `src/app.ts` | Every property (x, y, lift, rotation, tilt, scale) is a damped spring stepped at 240 Hz. Drag leans into velocity; hover tilts toward the cursor; idle sway keeps the glare alive. |

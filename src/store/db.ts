@@ -9,6 +9,8 @@ export interface CardRecord {
   rot: number;
   order: number;
   created: number;
+  /** Sample card shipped with the app. */
+  demo?: boolean;
 }
 
 const DB = 'holo-cards';
