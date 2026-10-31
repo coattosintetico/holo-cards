@@ -1,1 +1,1 @@
-# pokemonBalatroCards
+# holo-cards
