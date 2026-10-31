@@ -19,6 +19,8 @@ export class Card {
   readonly scale = new Spring(1, 260, 15);
   readonly hover = new Spring(0, 200, 25);
   readonly dim = new Spring(0, 120, 22);
+  /** 1 while the photo is still being processed, springs to 0 when art arrives. */
+  readonly pending = new Spring(0, 90, 14);
   readonly springs: Spring[];
 
   zone: Zone = 'hand';
@@ -28,6 +30,8 @@ export class Card {
   /** Seconds until this card starts moving (used for staggered dealing). */
   delay = 0;
   readonly phase = Math.random() * Math.PI * 2;
+  demo = false;
+  isPending = false;
 
   readonly scene = new THREE.Scene();
   readonly shadowScene = new THREE.Scene();
@@ -38,8 +42,8 @@ export class Card {
 
   constructor(
     readonly id: string,
-    readonly texture: THREE.Texture,
-    readonly art: Blob,
+    public texture: THREE.Texture,
+    public art: Blob | null,
     backdrop: THREE.Texture,
   ) {
     this.material = createCardMaterial(texture, backdrop);
@@ -52,7 +56,7 @@ export class Card {
     this.shadow = new THREE.Mesh(shadowGeo, this.shadowMaterial);
     this.shadow.frustumCulled = false;
     this.shadowScene.add(this.shadow);
-    this.springs = [this.x, this.y, this.z, this.rot, this.tiltX, this.tiltY, this.scale, this.hover, this.dim];
+    this.springs = [this.x, this.y, this.z, this.rot, this.tiltX, this.tiltY, this.scale, this.hover, this.dim, this.pending];
   }
 
   setBackdrop(t: THREE.Texture, w: number, h: number): void {
@@ -83,6 +87,7 @@ export class Card {
     this.material.uniforms.uTime.value = time;
     this.material.uniforms.uHover.value = this.hover.value;
     this.material.uniforms.uDim.value = this.dim.value;
+    this.material.uniforms.uPending.value = Math.max(0, this.pending.value);
   }
 
   /**
@@ -101,6 +106,17 @@ export class Card {
     const hh = (CARD_H / 2) * this.scale.value;
     if (Math.abs(lx) > hw || Math.abs(ly) > hh) return null;
     return { u: lx / hw, v: ly / hh };
+  }
+
+  /** Swap in the finished art (pending -> real card). */
+  setArt(texture: THREE.Texture, art: Blob): void {
+    this.texture.dispose();
+    this.texture = texture;
+    this.art = art;
+    this.material.uniforms.uArt.value = texture;
+    this.shadowMaterial.uniforms.uArt.value = texture;
+    this.isPending = false;
+    this.pending.target = 0;
   }
 
   dispose(): void {

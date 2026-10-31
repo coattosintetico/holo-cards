@@ -1,24 +1,28 @@
 import { ART_ASPECT, ART_MAX_PX } from '../config';
 
-export function makeCanvas(w: number, h: number): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(w));
-  c.height = Math.max(1, Math.round(h));
-  return c;
+/** All image work uses OffscreenCanvas so it runs both in a worker and on the main thread. */
+export type Canvas = OffscreenCanvas;
+
+export function makeCanvas(w: number, h: number): Canvas {
+  return new OffscreenCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
 }
 
-export async function blobToCanvas(blob: Blob, maxSide = 2048): Promise<HTMLCanvasElement> {
+const ctx2d = (c: Canvas) => c.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
+
+export async function blobToCanvas(blob: Blob, maxSide = 2048): Promise<Canvas> {
   const bmp = await createImageBitmap(blob);
   const s = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
   const c = makeCanvas(bmp.width * s, bmp.height * s);
-  c.getContext('2d', { willReadFrequently: true })!.drawImage(bmp, 0, 0, c.width, c.height);
+  const ctx = ctx2d(c);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
   bmp.close();
   return c;
 }
 
 /** Fraction of pixels that are (nearly) fully transparent. */
-export function transparentFraction(c: HTMLCanvasElement): number {
-  const { data } = c.getContext('2d')!.getImageData(0, 0, c.width, c.height);
+export function transparentFraction(c: Canvas): number {
+  const { data } = ctx2d(c).getImageData(0, 0, c.width, c.height);
   let n = 0;
   for (let i = 3; i < data.length; i += 4) if (data[i] < 16) n++;
   return n / (c.width * c.height);
@@ -29,8 +33,8 @@ export function transparentFraction(c: HTMLCanvasElement): number {
  * histograms with a small noise floor so stray speckles left by background
  * removal do not inflate the box.
  */
-export function cropToContent(c: HTMLCanvasElement, alphaThreshold = 24): HTMLCanvasElement {
-  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+export function cropToContent(c: Canvas, alphaThreshold = 24): Canvas {
+  const ctx = ctx2d(c);
   const { width: w, height: h } = c;
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
@@ -59,16 +63,16 @@ export function cropToContent(c: HTMLCanvasElement, alphaThreshold = 24): HTMLCa
   if (y0 >= h || x0 >= w) return c; // nothing visible: keep as-is
 
   const out = makeCanvas(x1 - x0 + 1, y1 - y0 + 1);
-  out.getContext('2d')!.drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  ctx2d(out).drawImage(c, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
   return out;
 }
 
 /** Contain-fit the cropped art into a canvas with the card's art aspect. */
-export function fitToArt(c: HTMLCanvasElement, padding = 0.03): HTMLCanvasElement {
+export function fitToArt(c: Canvas, padding = 0.03): Canvas {
   const outH = ART_ASPECT >= 1 ? ART_MAX_PX / ART_ASPECT : ART_MAX_PX;
   const outW = outH * ART_ASPECT;
   const out = makeCanvas(outW, outH);
-  const ctx = out.getContext('2d')!;
+  const ctx = ctx2d(out);
   const availW = out.width * (1 - 2 * padding);
   const availH = out.height * (1 - 2 * padding);
   const s = Math.min(availW / c.width, availH / c.height);
@@ -79,6 +83,6 @@ export function fitToArt(c: HTMLCanvasElement, padding = 0.03): HTMLCanvasElemen
   return out;
 }
 
-export function canvasToBlob(c: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob failed'))), 'image/png'));
+export function canvasToBlob(c: Canvas): Promise<Blob> {
+  return c.convertToBlob({ type: 'image/png' });
 }
