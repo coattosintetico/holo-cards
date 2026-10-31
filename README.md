@@ -44,3 +44,7 @@ Works on desktop and phones (WebGL2 required).
 ## Licensing note
 
 `@imgly/background-removal` is **AGPL-3.0**. Fine for an open-source toy; if this ever becomes closed-source or a hosted product, swap it (e.g. a self-hosted `rembg` endpoint or another ONNX segmentation model).
+
+## For contributors and coding agents
+
+Start with [`AGENTS.md`](AGENTS.md) (always-relevant context and rules); deeper notes are in [`docs/`](docs/). Keep them in sync with the code.
