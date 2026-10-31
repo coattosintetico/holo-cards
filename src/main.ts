@@ -94,9 +94,26 @@ input.addEventListener('change', () => {
   if (input.files) addFiles(input.files);
   input.value = '';
 });
-$('#clear').addEventListener('click', async () => {
+// Two-step confirm in the page itself (native confirm() is unavailable in sandboxed frames).
+const clearBtn = $<HTMLButtonElement>('#clear');
+let clearArmed = 0;
+clearBtn.addEventListener('click', async () => {
   app.sfx.unlock();
-  if (!app.count || !confirm('Remove all cards?')) return;
+  if (!app.count) return;
+  if (!clearArmed) {
+    clearBtn.textContent = 'Remove all?';
+    clearBtn.classList.add('armed');
+    clearArmed = window.setTimeout(() => {
+      clearArmed = 0;
+      clearBtn.textContent = 'Clear';
+      clearBtn.classList.remove('armed');
+    }, 2500);
+    return;
+  }
+  clearTimeout(clearArmed);
+  clearArmed = 0;
+  clearBtn.textContent = 'Clear';
+  clearBtn.classList.remove('armed');
   await app.clearAll();
   refreshEmpty();
 });
