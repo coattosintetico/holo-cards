@@ -86,7 +86,9 @@ kbd { font: inherit; padding: 0 4px; border: 1px solid var(--line); border-radiu
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   opacity: 0; pointer-events: none; transition: opacity .35s, transform .35s;
 }
-#intro.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+#intro.show { opacity: 1; transform: translate(-50%, 0); }
+/* Only the buttons take input, so cards under the strip stay tappable. */
+#intro.show button { pointer-events: auto; }
 #intro p { margin: 0; flex: 1 1 220px; font-size: 14px; line-height: 1.35; text-wrap: balance; }
 #intro .row { display: flex; gap: 8px; }
 

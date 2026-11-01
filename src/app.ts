@@ -53,6 +53,10 @@ export class App {
   private lastTap: { card: Card; t: number; x: number; y: number } | null = null;
   private inspecting: Card | null = null;
   private inspectStart = 0;
+  /** Pointer position that inspect tilt is measured from (open position, or touch-down point). */
+  private inspectBase = { nx: 0, ny: 0 };
+  /** Press inside inspect mode, to tell a dismissing tap from a tilt drag. */
+  private inspectPress: { x: number; y: number; t: number } | null = null;
   private time = 0;
   private last = performance.now();
   private saveTimer = 0;
@@ -199,7 +203,12 @@ export class App {
     this.pointer.down = true;
     this.pointer.inside = true;
     this.prevPtr = null;
-    if (this.inspecting) return; // dismissed on pointerup
+    if (this.inspecting) {
+      // Tilt is relative to where this touch started; dismissal happens on a tap (pointerup).
+      this.inspectBase = { nx: this.pointer.nx, ny: this.pointer.ny };
+      this.inspectPress = { x: e.clientX, y: e.clientY, t: performance.now() };
+      return;
+    }
     const hit = this.pick();
     if (!hit) return;
     const card = hit.card;
@@ -239,7 +248,10 @@ export class App {
     if (this.pointer.touch) this.pointer.inside = false;
 
     if (this.inspecting) {
-      if (e.target === this.canvas && performance.now() - this.inspectStart > 300) this.endInspect();
+      const pr = this.inspectPress;
+      this.inspectPress = null;
+      const wasTap = !!pr && Math.hypot(e.clientX - pr.x, e.clientY - pr.y) < TAP_PX && performance.now() - pr.t < 400;
+      if (e.target === this.canvas && wasTap && performance.now() - this.inspectStart > 300) this.endInspect();
       return;
     }
     const d = this.drag;
@@ -291,6 +303,9 @@ export class App {
   startInspect(card: Card): void {
     this.inspecting = card;
     this.inspectStart = performance.now();
+    // Start flat: tilt is measured from where the pointer is now, not from screen centre.
+    this.inspectBase = { nx: this.pointer.nx, ny: this.pointer.ny };
+    this.inspectPress = null;
     this.setHovered(null);
     this.canvas.style.cursor = 'zoom-out';
     this.sfx.whoosh(true);
@@ -583,8 +598,17 @@ export class App {
       ins.z.target = z;
       ins.rot.target = 0;
       ins.scale.target = Math.min(1.55, fit);
-      const tx = tilt ? tilt.x : this.pointer.nx;
-      const ty = tilt ? tilt.y : this.pointer.ny;
+      // Relative to the gesture's start, so the card opens flat. On touch it only
+      // tilts while a finger is down and settles back to flat on release.
+      let tx = 0;
+      let ty = 0;
+      if (tilt) {
+        tx = tilt.x;
+        ty = tilt.y;
+      } else if (!this.pointer.touch || this.pointer.down) {
+        tx = clamp((this.pointer.nx - this.inspectBase.nx) * 1.6, -1, 1);
+        ty = clamp((this.pointer.ny - this.inspectBase.ny) * 1.6, -1, 1);
+      }
       ins.tiltX.target = -ty * 0.5;
       ins.tiltY.target = tx * 0.5;
       ins.hover.target = 1;
