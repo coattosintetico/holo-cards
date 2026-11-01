@@ -48,7 +48,8 @@ export class App {
   private pointer = { nx: 0, ny: 0, vx: 0, vy: 0, inside: false, touch: false, down: false };
   private hovered: Card | null = null;
   private hoverLocal = { u: 0, v: 0 };
-  private drag: { card: Card; ox: number; oy: number; sx: number; sy: number; t: number; insert: number; moved: boolean } | null = null;
+  /** ox/oy: grab offset measured on the card's own (lifted) plane; dist: max pointer travel in px. */
+  private drag: { card: Card; ox: number; oy: number; sx: number; sy: number; t: number; insert: number; moved: boolean; dist: number; z0: number } | null = null;
   private lastTap: { card: Card; t: number; x: number; y: number } | null = null;
   private inspecting: Card | null = null;
   private inspectStart = 0;
@@ -174,7 +175,10 @@ export class App {
     this.setPointer(e);
     // Touch has no hover: only track while a finger is down.
     this.pointer.inside = !this.pointer.touch || this.pointer.down;
-    if (this.drag && Math.hypot(e.clientX - this.drag.sx, e.clientY - this.drag.sy) > TAP_PX) this.drag.moved = true;
+    if (this.drag) {
+      this.drag.dist = Math.max(this.drag.dist, Math.hypot(e.clientX - this.drag.sx, e.clientY - this.drag.sy));
+      if (this.drag.dist > TAP_PX) this.drag.moved = true;
+    }
     if (this.drag || this.inspecting || !this.pointer.inside) return;
     const hit = this.pick();
     this.setHovered(hit?.card ?? null);
@@ -200,7 +204,9 @@ export class App {
     if (!hit) return;
     const card = hit.card;
     this.setHovered(card);
-    const p = this.pointerAt(0);
+    // Measure the grab offset on the card's current plane so perspective
+    // doesn't shift the card when it starts following the pointer.
+    const p = this.pointerAt(card.z.value);
     this.drag = {
       card,
       ox: card.x.value - p.x,
@@ -210,6 +216,8 @@ export class App {
       t: performance.now(),
       insert: -1,
       moved: false,
+      dist: 0,
+      z0: card.z.value,
     };
     this.canvas.setPointerCapture(e.pointerId);
     this.canvas.style.cursor = 'grabbing';
@@ -519,9 +527,11 @@ export class App {
       }
     }
 
-    // Hovered (or pressed on touch): lift and lean towards the pointer.
+    // Hovered: lift and lean towards the pointer. A held card is handled by
+    // the drag branch below (its targets aren't reset by the hand loop, so
+    // the relative `+=` here would accumulate every frame).
     const h = this.hovered;
-    if (h && !this.inspecting && (!drag || !drag.moved)) {
+    if (h && !this.inspecting && h !== drag?.card) {
       if (h.zone === 'hand') {
         h.y.target += 0.42;
         h.rot.target = 0;
@@ -536,15 +546,22 @@ export class App {
       if (l) this.hoverLocal = { u: l.u, v: l.v };
     }
 
-    // Dragged: follow the pointer, lean into the motion.
-    if (drag && drag.moved) {
+    // Held / dragged: follow the pointer from the first frame (no catch-up
+    // jump at the tap threshold), lean into the motion.
+    if (drag) {
       const c = drag.card;
       const vx = this.pointer.vx;
       const vy = this.pointer.vy;
-      // On touch, float the card above the finger so it stays visible.
-      const lift = this.pointer.touch ? CARD_H * 0.28 : 0;
-      c.x.target = ptr.x + drag.ox;
-      c.y.target = ptr.y + drag.oy + lift;
+      // Follow on the card's own plane so the grab point stays under the pointer.
+      const pz = this.pointerAt(c.z.value);
+      // On touch, float the card above the finger, easing in with travel distance.
+      const ease = clamp((drag.dist - TAP_PX) / 120, 0, 1);
+      const lift = this.pointer.touch ? CARD_H * 0.28 * ease * ease * (3 - 2 * ease) : 0;
+      // Scale the offset with depth so its on-screen size stays constant while lifting.
+      const camZ = this.camera.position.z;
+      const k = (camZ - c.z.value) / (camZ - drag.z0);
+      c.x.target = pz.x + drag.ox * k;
+      c.y.target = pz.y + drag.oy * k + lift;
       c.z.target = 1.4;
       c.scale.target = 1.08;
       c.rot.target = clamp(-vx * 0.022, -0.5, 0.5);

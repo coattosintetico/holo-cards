@@ -42,6 +42,7 @@ await touch('touchEnd');
 ```
 
 - Double-tap: two `touchStart`/`touchEnd` pairs about 120 ms apart on the same card.
+- SwiftShader runs slower than real time (`dt` is capped at 50 ms), so springs take longer to settle: wait ≥ 2 s before sampling positions, or settling gets mistaken for jumps.
 - Touches outside the canvas hit `<html>`, scroll, and produce `pointercancel`; if nothing happens, check the coordinates first.
 
 ## Test fixtures
