@@ -24,7 +24,7 @@ How rendering, motion and input work. Source of truth is the code; update this f
 
    This makes stacked cards refract each other, and keeps phones from paying for N full-screen copies.
 
-Draw order: table cards by `order` (bumped on every touch) < hand cards by index (hovered +500) < dragged < inspected.
+Draw order: table cards by `order` (bumped on every touch) < a discarded card flying off (`zone 'out'`) < deck cards, bottom to top < hand cards by index (hovered +500) < dragged < inspected. Only the top `DECK_VISIBLE = 6` deck cards are drawn at all (the rest are hidden under them), which caps the per-card backdrop copies.
 
 ## Plastic card shader (`render/cardMaterials.ts`)
 
@@ -36,7 +36,8 @@ All in card-local units `p` (centred), with a rounded-rect SDF `d`:
 - **Glare band:** a diagonal double band whose position depends on the card normal (tilt), so it sweeps when cards lean, plus a tiny time drift.
 - **Art:** sampled inside `ART_RECT` and composited opaque over the plastic. It also receives specular and glare (it sits under the plastic surface).
 - `uDim`: inspect mode dims only the art (the backdrop is already dimmed via the table).
-- `uPending`: placeholder state; a shimmer sweep plus a spinning arc ring.
+- `uPending`: still-processing state. The art (the photo preview) is warped (value noise plus sines), blurred (mip bias `3.2·uPending`), RGB-split, desaturated and darkened; a scan line sweeps down and tears the rows it crosses. When the real art arrives the spring 1 → 0 "develops" it sharp.
+- `uLoading`: card on top of the deck; a warm light chasing around the rim (plus a faint opposite tail and a breathing glow).
 
 Shadow shader: blurred rounded rect (plastic, faint: `0.07 + 0.15·blur`) plus the art's alpha from a **blurred mip level** (`textureLod`, level `2 + 4·blur`). The art textures therefore need mipmaps (`LinearMipmapLinearFilter`).
 
@@ -56,7 +57,8 @@ Every animated property is a damped spring (`stiffness`, `damping`):
 | tiltX, tiltY | 220 / 14 | |
 | scale | 260 / 15 | pick-up `impulse(+1.2)`, drop `impulse(-0.9)` (squash) |
 | hover, dim | 200 / 25, 120 / 22 | shader uniforms |
-| pending | 90 / 14 | 1 → 0 when the art arrives |
+| pending | 34 / 10 | 1 → 0 when the art arrives (slow, so the art develops while it flies to the hand) |
+| loading | 60 / 14 | rim light; 1 only for the top deck card |
 
 Euler order is `'XYZ'`, so in-plane rotation applies first and tilt is about the screen axes.
 
@@ -71,6 +73,10 @@ Euler order is `'XYZ'`, so in-plane rotation applies first and tilt is about the
   - The hover branch skips the held card. It isn't in the hand slots while held, so its targets aren't reset each frame and the hover's relative `y += 0.42` would accumulate (this was the "card flies off the top" bug).
 - **Drop:** in the hand zone it joins the hand at the insertion index; above it, it stays on the table at its position with a small random rotation (`rest`). A tap (no move, < 280 ms) returns the card to where it was.
 - **Table cards** saved on a larger screen are clamped into view.
+- **Deck** (`zone 'deck'`, runtime only): photos waiting for or in processing, `deck[0]` on top = the one being processed; new photos join the bottom (FIFO, matches the queue). Sits top left (`deckBase`): scale 0.78 (0.62 when fewer than 5 card widths fit), floating at `DECK_Z = 0.7`, with its x/y divided by the perspective factor so the on-screen margin holds; `topPx` 96 below the hint on desktop, 214 on narrow screens to clear the full-width toasts. Float: slow Lissajous drift (≈ ±0.1), z bob, rotation ±0.035 and continuous tilt ±0.13/0.15 as spring targets; each lower card uses `time − 0.18·i` (the pile shears) plus a step offset and its own fixed `deckRot`. Lower cards are dimmed (0.35), and deck shadows are weakened (`shadowMul` 0.65 top, 0.3 others) so they don't stack into a black slab. `prefers-reduced-motion` scales the float to 35 %.
+  - Deck cards can't be hovered or picked (cursor `not-allowed`). Pressing the deck **refuses**: alternating x, rot, scale and z impulses decaying down the pile, a double muffled knock (`sfx.blocked`) and a short vibrate pattern.
+  - **Draw** (`resolvePending`): the card leaves the deck, joins the right end of the hand, and gets `z +7`, `rot −2.4`, `scale +1.2` impulses so it arcs over the table; the hand springs carry it into place (deal swish plus chime).
+  - **Discard** (`discardPending`, failed photo): `zone 'out'`, the card is sent off the left edge, then removed after 0.9 s.
 - **Inspect:** centred, `z 3.2`, scale `min(1.55, fit-to-screen)`, other cards dimmed. Tilt (`±0.5` rad) is **relative to the gesture start** so the card always opens flat: mouse, relative to the cursor position when inspect opened (`inspectBase`, gain 1.6 per NDC unit); touch, relative to the touch-down point, only while a finger is down, settling back to flat on release; phone tilt, when enabled, overrides both.
 - **Phone tilt** (when enabled): all hand and table cards get a subtle tilt (`±0.15`), and the inspected card follows it fully.
 
@@ -85,8 +91,8 @@ Euler order is `'XYZ'`, so in-plane rotation applies first and tilt is about the
 
 ## Sound (`audio/sfx.ts`)
 
-All synthesised (oscillators plus filtered noise), routed through a compressor and a generated-IR convolver reverb (~0.9 s, low-passed, 16 % wet). Random pitch and gain per voice. Voices: hover tick (pitch climbs in whole tones when sweeping within 260 ms), reorder tick, pick-up, drop (strength-scaled), deal, chime (new card), remove, inspect whoosh, and a continuous band-passed noise "slide" whose gain and cutoff follow drag speed. `unlock()` runs on pointerdown and pointerup (iOS).
+All synthesised (oscillators plus filtered noise), routed through a compressor and a generated-IR convolver reverb (~0.9 s, low-passed, 16 % wet). Random pitch and gain per voice. Voices: hover tick (pitch climbs in whole tones when sweeping within 260 ms), reorder tick, blocked (double low knock, deck pressed), pick-up, drop (strength-scaled), deal, chime (new card), remove, inspect whoosh, and a continuous band-passed noise "slide" whose gain and cutoff follow drag speed. `unlock()` runs on pointerdown and pointerup (iOS).
 
 ## Persistence (`store/db.ts`)
 
-IndexedDB DB `holo-cards`, store `cards`, key `id`. `CardRecord = { id, art: Blob (processed PNG), zone: 'hand'|'table', x, y, rot, order, created, demo? }`. Saves are debounced by 400 ms after drops and changes. Pending (unfinished) cards are never saved. localStorage flag `holo-cards:added` remembers that the user has uploaded or pressed Add, which stops the pulse and stops samples from reloading.
+IndexedDB DB `holo-cards`, store `cards`, key `id`. `CardRecord = { id, art: Blob (processed PNG), zone: 'hand'|'table', x, y, rot, order, created, demo? }`. Saves are debounced by 400 ms after drops and changes. Pending (deck) cards are never saved; `Card.zone` is `CardZone = Zone | 'deck' | 'out'` and only `hand`/`table` reach the DB. localStorage flag `holo-cards:added` remembers that the user has uploaded or pressed Add, which stops the pulse and stops samples from reloading.

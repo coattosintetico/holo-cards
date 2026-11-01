@@ -4,6 +4,9 @@ import { Spring } from './physics/spring';
 import { createCardMaterial, createShadowMaterial } from './render/cardMaterials';
 import type { Zone } from './store/db';
 
+/** `deck`: queued or processing (runtime only, never saved). `out`: animating away before removal. */
+export type CardZone = Zone | 'deck' | 'out';
+
 const SHADOW_PAD = 1.5;
 const cardGeo = new THREE.PlaneGeometry(CARD_W, CARD_H);
 const shadowGeo = new THREE.PlaneGeometry(CARD_W * SHADOW_PAD, CARD_H * SHADOW_PAD);
@@ -19,11 +22,15 @@ export class Card {
   readonly scale = new Spring(1, 260, 15);
   readonly hover = new Spring(0, 200, 25);
   readonly dim = new Spring(0, 120, 22);
-  /** 1 while the photo is still being processed, springs to 0 when art arrives. */
-  readonly pending = new Spring(0, 90, 14);
+  /** 1 while the photo is still being processed, springs to 0 when art arrives (the art "develops"). */
+  readonly pending = new Spring(0, 34, 10);
+  /** Rim light running around the card on top of the deck. */
+  readonly loading = new Spring(0, 60, 14);
   readonly springs: Spring[];
 
-  zone: Zone = 'hand';
+  zone: CardZone = 'hand';
+  /** Fixed small rotation while stacked in the deck, so the pile looks hand-made. */
+  readonly deckRot = (Math.random() - 0.5) * 0.12;
   /** Resting position when on the table. */
   rest = { x: 0, y: 0, rot: 0 };
   order = 0;
@@ -31,6 +38,8 @@ export class Card {
   delay = 0;
   readonly phase = Math.random() * Math.PI * 2;
   demo = false;
+  /** Shadow strength multiplier (deck cards share one soft shadow instead of stacking dark ones). */
+  shadowMul = 1;
   isPending = false;
 
   readonly scene = new THREE.Scene();
@@ -56,7 +65,7 @@ export class Card {
     this.shadow = new THREE.Mesh(shadowGeo, this.shadowMaterial);
     this.shadow.frustumCulled = false;
     this.shadowScene.add(this.shadow);
-    this.springs = [this.x, this.y, this.z, this.rot, this.tiltX, this.tiltY, this.scale, this.hover, this.dim, this.pending];
+    this.springs = [this.x, this.y, this.z, this.rot, this.tiltX, this.tiltY, this.scale, this.hover, this.dim, this.pending, this.loading];
   }
 
   setBackdrop(t: THREE.Texture, w: number, h: number): void {
@@ -82,12 +91,13 @@ export class Card {
     this.shadow.rotation.z = this.rot.value + sway;
     this.shadow.scale.setScalar(s * (1 + h * 0.04));
     this.shadowMaterial.uniforms.uBlur.value = Math.min(1, h / 2.5);
-    this.shadowMaterial.uniforms.uOpacity.value = (1 - Math.min(0.55, h * 0.18)) * (1 - this.dim.value * 0.6);
+    this.shadowMaterial.uniforms.uOpacity.value = (1 - Math.min(0.55, h * 0.18)) * (1 - this.dim.value * 0.6) * this.shadowMul;
 
     this.material.uniforms.uTime.value = time;
     this.material.uniforms.uHover.value = this.hover.value;
     this.material.uniforms.uDim.value = this.dim.value;
     this.material.uniforms.uPending.value = Math.max(0, this.pending.value);
+    this.material.uniforms.uLoading.value = Math.max(0, this.loading.value);
   }
 
   /**
@@ -108,15 +118,21 @@ export class Card {
     return { u: lx / hw, v: ly / hh };
   }
 
-  /** Swap in the finished art (pending -> real card). */
-  setArt(texture: THREE.Texture, art: Blob): void {
+  /** Replace the printed texture (e.g. blank placeholder -> photo preview). */
+  setTexture(texture: THREE.Texture): void {
     this.texture.dispose();
     this.texture = texture;
-    this.art = art;
     this.material.uniforms.uArt.value = texture;
     this.shadowMaterial.uniforms.uArt.value = texture;
+  }
+
+  /** Swap in the finished art (pending -> real card). */
+  setArt(texture: THREE.Texture, art: Blob): void {
+    this.setTexture(texture);
+    this.art = art;
     this.isPending = false;
     this.pending.target = 0;
+    this.loading.target = 0;
   }
 
   dispose(): void {

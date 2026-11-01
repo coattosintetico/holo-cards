@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ART_RECT, CARD_H, CARD_RADIUS, CARD_W } from '../config';
-import { SD_ROUND_BOX } from './glsl';
+import { NOISE, SD_ROUND_BOX } from './glsl';
 
 const artRect = new THREE.Vector4(...ART_RECT);
 const size = new THREE.Vector2(CARD_W, CARD_H);
@@ -37,6 +37,7 @@ export function createCardMaterial(art: THREE.Texture, backdrop: THREE.Texture):
       uHover: { value: 0 },
       uDim: { value: 0 },
       uPending: { value: 0 },
+      uLoading: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -65,12 +66,14 @@ export function createCardMaterial(art: THREE.Texture, backdrop: THREE.Texture):
       uniform float uHover;
       uniform float uDim;
       uniform float uPending;
+      uniform float uLoading;
       varying vec2 vUv;
       varying vec3 vWorld;
       varying vec3 vT;
       varying vec3 vB;
       varying vec3 vN;
       ${SD_ROUND_BOX}
+      ${NOISE}
 
       void main() {
         vec2 hs = uSize * 0.5;
@@ -129,8 +132,30 @@ export function createCardMaterial(art: THREE.Texture, backdrop: THREE.Texture):
         // Printed art.
         vec2 auv = (vUv - uArtRect.xy) / (uArtRect.zw - uArtRect.xy);
         vec4 art = vec4(0.0);
+        float scan = 0.0;
         if (all(greaterThanEqual(auv, vec2(0.0))) && all(lessThanEqual(auv, vec2(1.0)))) {
-          art = texture2D(uArt, auv);
+          if (uPending > 0.001) {
+            // Still processing: the photo is warped, blurred, colour-split and
+            // washed out; a scan line sweeps down and tears the rows it passes.
+            float t = uTime;
+            scan = fract(t * 0.32) * 1.3 - 0.15;
+            float near = exp(-pow((auv.y - (1.0 - scan)) / 0.045, 2.0));
+            vec2 warp = vec2(vnoise(auv * 5.0 + vec2(t * 0.6, 0.0)), vnoise(auv * 5.0 + vec2(3.7, t * 0.5))) - 0.5;
+            warp += vec2(sin(auv.y * 38.0 + t * 3.1), cos(auv.x * 29.0 - t * 2.3)) * 0.12;
+            warp.x += near * (hash12(vec2(floor(auv.y * 90.0), floor(t * 14.0))) - 0.5) * 0.9;
+            vec2 w = auv + warp * 0.035 * uPending;
+            vec2 ca = vec2(0.012, 0.004) * uPending;
+            float bias = 3.2 * uPending;
+            art = texture2D(uArt, w, bias);
+            art.r = texture2D(uArt, w + ca, bias).r;
+            art.b = texture2D(uArt, w - ca, bias).b;
+            float lum = dot(art.rgb, vec3(0.3, 0.59, 0.11));
+            art.rgb = mix(art.rgb, vec3(lum) * vec3(1.02, 0.97, 0.9), 0.45 * uPending);
+            art.rgb *= 1.0 - 0.18 * uPending;
+            scan = near * uPending;
+          } else {
+            art = texture2D(uArt, auv);
+          }
         }
 
         // The backdrop is already dimmed during inspect; only dim the print.
@@ -142,17 +167,19 @@ export function createCardMaterial(art: THREE.Texture, backdrop: THREE.Texture):
         col += irid * bev * 0.07;
         col += fres * 0.12 + uHover * 0.015;
 
-        // Still processing: shimmer sweep + a small spinning arc.
-        if (uPending > 0.001) {
-          float sweep = fract(uTime * 0.55) * 1.8 - 0.4;
-          float sb = exp(-pow((vUv.x * 0.4 + vUv.y * 0.6) - sweep, 2.0) / 0.006);
-          col += sb * 0.10 * uPending;
-          float r = length(p);
-          float ang = atan(p.y, p.x) / 6.28318 + 0.5;
-          float ring = 1.0 - smoothstep(0.0, 0.018, abs(r - 0.26));
-          float arc = fract(ang + uTime * 0.9);
-          arc = smoothstep(0.25, 1.0, arc);
-          col += vec3(1.0, 0.9, 0.78) * ring * (0.08 + 0.5 * arc) * uPending;
+        // Still processing: a soft bright scan line over the print.
+        col += vec3(1.0, 0.9, 0.78) * scan * 0.22;
+
+        // Loading (top of the deck): a warm light chasing around the rim.
+        if (uLoading > 0.001) {
+          float ang = atan(p.y / hs.y, p.x / hs.x) / 6.28318 + 0.5;
+          float head = fract(uTime * 0.45);
+          float tail = fract(head - ang);
+          float chase = exp(-tail * 7.0) + exp(-fract(head + 0.5 - ang) * 7.0) * 0.35;
+          float rimBand = smoothstep(-0.12, -0.02, d) * (1.0 - smoothstep(-0.008, 0.0, d));
+          float core = exp(-pow((d + 0.03) / 0.012, 2.0));
+          float breathe = 0.10 + 0.05 * sin(uTime * 2.4);
+          col += vec3(1.0, 0.78, 0.5) * (rimBand * (breathe + chase * 0.8) + core * chase * 1.6) * uLoading;
         }
 
         gl_FragColor = vec4(col, alpha);

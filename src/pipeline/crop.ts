@@ -67,6 +67,24 @@ export function cropToContent(c: Canvas, alphaThreshold = 24): Canvas {
   return out;
 }
 
+/**
+ * Quick, low-res preview of a photo cover-fitted into the art window (shown
+ * on queued cards while the real art is processed). Decodes downscaled.
+ */
+export async function coverToArt(blob: Blob, maxPx = 384): Promise<Canvas> {
+  const outH = ART_ASPECT >= 1 ? maxPx / ART_ASPECT : maxPx;
+  const out = makeCanvas(outH * ART_ASPECT, outH);
+  const probe = await createImageBitmap(blob, { resizeWidth: out.width * 2, resizeQuality: 'medium' });
+  const s = Math.max(out.width / probe.width, out.height / probe.height);
+  const dw = probe.width * s;
+  const dh = probe.height * s;
+  const ctx = ctx2d(out);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(probe, (out.width - dw) / 2, (out.height - dh) / 2, dw, dh);
+  probe.close();
+  return out;
+}
+
 /** Contain-fit the cropped art into a canvas with the card's art aspect. */
 export function fitToArt(c: Canvas, padding = 0.03): Canvas {
   const outH = ART_ASPECT >= 1 ? ART_MAX_PX / ART_ASPECT : ART_MAX_PX;
