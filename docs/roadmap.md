@@ -6,7 +6,7 @@ Keep this current: remove items when done, and add what you learn.
 
 - Background-removal quality and speed on desktop and phone (both models).
 - Phone tilt axis directions and sensitivity on iOS and Android (`tilt.ts`: ±25° maps to ±1).
-- Touch feel: the float-above-finger offset (`0.28·CARD_H`), tap and double-tap thresholds (280 ms / 10 px / 380 ms).
+- Touch feel: the float-above-finger offset (`0.28·CARD_H`, eased in over 120 px of travel), tap and double-tap thresholds (280 ms / 10 px / 380 ms).
 - Performance on mid-range phones with ~10+ cards (per-card sub-rect copies, DPR 1.75 cap).
 - iOS audio unlock (silent switch mutes web audio; expected).
 

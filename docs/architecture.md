@@ -65,7 +65,10 @@ Euler order is `'XYZ'`, so in-plane rotation applies first and tilt is about the
 - **Hand:** `handY = -viewH/2 + 0.64·CARD_H`. Span `= min(viewW·0.6, viewW − 1.2·CARD_W, (n−1)·0.95·CARD_W)`, so the outer card edges stay on screen. Slight arc (`y −= x0²·0.012`) and fan rotation (`−x0·0.028`).
 - While dragging over the hand zone (`y < -viewH/2 + 1.12·CARD_H`), a gap opens at the insertion index, with a tick sound when it changes.
 - **Hover:** in-hand cards rise 0.42 and straighten; all hovered cards lift (`z 0.45`), scale 1.07 and tilt toward the pointer (±0.32 rad). Neighbours are pushed aside by `min(0.32, spacing/2)`.
-- **Drag:** follows the pointer plus a grab offset. On touch the card floats `0.28·CARD_H` above the finger. Lift `z 1.4`, scale 1.08. It leans into velocity: `rot = −vx·0.022`, `tiltY = vx·0.03`, `tiltX = −vy·0.03` (clamped). The cloth slide sound follows speed.
+- **Hold / drag:** from the moment of press (not only after the 10 px tap threshold), the held card follows the pointer, lifts to `z 1.4` and scale 1.08, and leans into velocity: `rot = −vx·0.022`, `tiltY = vx·0.03`, `tiltX = −vy·0.03` (clamped). The cloth slide sound follows speed.
+  - The grab offset is measured on the **card's own plane** at press (`z0`) and scaled by `(camZ − z)/(camZ − z0)` while following, so the grabbed point stays exactly under the pointer while the card lifts (no perspective shift).
+  - On touch the card floats up to `0.28·CARD_H` above the finger, easing in (smoothstep) over the first 120 px of travel after the tap threshold, so there's no jump at drag start.
+  - The hover branch skips the held card. It isn't in the hand slots while held, so its targets aren't reset each frame and the hover's relative `y += 0.42` would accumulate (this was the "card flies off the top" bug).
 - **Drop:** in the hand zone it joins the hand at the insertion index; above it, it stays on the table at its position with a small random rotation (`rest`). A tap (no move, < 280 ms) returns the card to where it was.
 - **Table cards** saved on a larger screen are clamped into view.
 - **Inspect:** centred, `z 3.2`, scale `min(1.55, fit-to-screen)`, tilt follows the pointer (`±0.5`) or phone tilt; other cards dimmed.
