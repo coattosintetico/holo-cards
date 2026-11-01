@@ -45,7 +45,9 @@ There are no unit tests. Verify visually with headless Playwright; see `docs/tes
 | `src/interaction/tilt.ts` | Phone tilt (DeviceOrientation) normalised to [-1, 1]. |
 | `src/pipeline/*` | Photo → card art: `client.ts` (worker wrapper and fallback), `worker.ts`, `process.ts` (background removal), `crop.ts` (OffscreenCanvas crop/fit, deck preview `coverToArt`). |
 | `src/audio/sfx.ts` | All sounds, synthesised in code. |
-| `src/store/db.ts` | IndexedDB `holo-cards` / store `cards` (`CardRecord`). |
+| `src/store/db.ts` | IndexedDB `holo-cards`: store `cards` (`CardRecord`) and store `pending` (queued photos, so the queue resumes). |
+| `src/wakeLock.ts` | Screen Wake Lock held while the upload queue runs. |
+| `public/coi-sw.js` | Service worker adding COOP/COEP so the page is cross-origin isolated (multi-threaded WASM); registered inline in `index.html`. |
 | `src/config.ts` | Card geometry constants (63×88 aspect, margins, art rect). |
 | `public/demo/*.png` | Sample creature art (generated, transparent, deliberately off-centre to exercise the crop). |
 
@@ -56,6 +58,7 @@ There are no unit tests. Verify visually with headless Playwright; see `docs/tes
 - **Draw order is manual:** table, then for each card back-to-front: its shadow, `copyBackdrop`, then the card. Depth testing is off everywhere.
 - **imgly memoises its session on `JSON.stringify(config)`**, which drops functions, so per-call `progress` callbacks are silently ignored after the first call. Use the stable reporter in `process.ts`.
 - **Pipeline code must work in a worker:** OffscreenCanvas only, no `document`.
+- **The page is cross-origin isolated (COEP `require-corp`):** a new cross-origin resource loaded without CORS must send `Cross-Origin-Resource-Policy` or it's blocked.
 - **The UI runs in sandboxed frames too** (the claude.ai artifact test build): no `alert`/`confirm`/`prompt`, and no network access to other hosts.
 - **`[hidden]` must win over button `display`** (there's a global `[hidden]{display:none!important}`); keep it.
 - Never put model identifiers in commits, PRs or code.

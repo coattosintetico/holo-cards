@@ -5,6 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#1a0d09" />
     <title>holo-cards</title>
+    <script>
+      // Cross-origin isolation lets ONNX Runtime use multi-threaded WASM.
+      // GitHub Pages can't send COOP/COEP headers, so public/coi-sw.js adds
+      // them; the first visit reloads once so the page comes back isolated.
+      // ?nocoi removes the service worker (escape hatch).
+      (function () {
+        try {
+          var sw = navigator.serviceWorker;
+          if (!sw || window.crossOriginIsolated || !window.isSecureContext || window.top !== window) return;
+          if (/[?&]nocoi\b/.test(location.search)) {
+            sw.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.unregister(); }); });
+            return;
+          }
+          var failed = 'holo-cards:coi-failed';
+          if (localStorage.getItem(failed)) return;
+          if (sw.controller) {
+            // Controlled but still not isolated: this browser ignores the headers. Don't loop.
+            localStorage.setItem(failed, '1');
+            return;
+          }
+          sw.register('./coi-sw.js').then(function () { return sw.ready; }).then(function () {
+            if (sessionStorage.getItem('holo-cards:coi-reloaded')) return;
+            sessionStorage.setItem('holo-cards:coi-reloaded', '1');
+            location.reload();
+          }).catch(function () {});
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <canvas id="scene"></canvas>

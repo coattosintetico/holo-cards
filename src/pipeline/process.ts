@@ -4,14 +4,21 @@ export type Progress = (stage: string, frac?: number) => void;
 export type Model = 'isnet' | 'isnet_fp16' | 'isnet_quint8';
 
 export interface ProcessOptions {
+  /** Model for the CPU (WASM) path. The WebGPU path always uses `isnet_fp16`. */
   model: Model;
+  /** Try WebGPU first and fall back to the CPU if it's missing or fails. */
+  gpu: boolean;
   /** Longest side the source is downscaled to before processing. */
   maxSide: number;
 }
 
+export type Backend = 'gpu' | 'cpu';
+
 export interface ProcessResult {
   art: Blob;
   warning?: string;
+  /** Where background removal ran; absent if it was skipped or failed. */
+  backend?: Backend;
 }
 
 /** Images that already have a meaningful alpha channel skip the ML step. */
@@ -23,18 +30,46 @@ const ALREADY_CUT_OUT = 0.04;
  * forever. So we pass one stable callback and redirect it per call.
  */
 let report: Progress = () => {};
+let backend: Backend = 'cpu';
 const stableProgress = (key: string, current: number, total: number) => {
   if (key.startsWith('fetch')) report('download', total ? current / total : undefined);
-  else report('remove', total ? current / total : undefined);
+  else report(`remove-${backend}`, total ? current / total : undefined);
 };
-const configs = new Map<Model, object>();
+const configs = new Map<string, object>();
 
-async function removeBg(blob: Blob, model: Model): Promise<Blob> {
-  const { removeBackground } = await import('@imgly/background-removal');
-  if (!configs.has(model)) {
-    configs.set(model, { model, output: { format: 'image/png' }, progress: stableProgress });
+function config(model: Model, device: Backend): object {
+  const key = `${model}:${device}`;
+  if (!configs.has(key)) configs.set(key, { model, device, output: { format: 'image/png' }, progress: stableProgress });
+  return configs.get(key)!;
+}
+
+/** null = not probed yet. Flips to false for the session after any GPU failure. */
+let gpuUsable: boolean | null = null;
+async function probeGpu(): Promise<boolean> {
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (!gpu) return false;
+  try {
+    return (await gpu.requestAdapter()) !== null;
+  } catch {
+    return false;
   }
-  return removeBackground(blob, configs.get(model)!);
+}
+
+async function removeBg(blob: Blob, opts: ProcessOptions): Promise<{ blob: Blob; backend: Backend }> {
+  const { removeBackground } = await import('@imgly/background-removal');
+  if (opts.gpu && gpuUsable === null) gpuUsable = await probeGpu();
+  if (opts.gpu && gpuUsable) {
+    backend = 'gpu';
+    try {
+      // fp16 is the variant imgly recommends for WebGPU (quint8 runs badly there).
+      return { blob: await removeBackground(blob, config('isnet_fp16', 'gpu')), backend };
+    } catch (err) {
+      console.warn('WebGPU background removal failed, using the CPU from now on', err);
+      gpuUsable = false;
+    }
+  }
+  backend = 'cpu';
+  return { blob: await removeBackground(blob, config(opts.model, 'cpu')), backend };
 }
 
 function describe(err: unknown): string {
@@ -48,12 +83,14 @@ function describe(err: unknown): string {
 export async function processImage(file: Blob, progress: Progress, opts: ProcessOptions): Promise<ProcessResult> {
   report = progress;
   let warning: string | undefined;
+  let used: Backend | undefined;
   progress('decode');
   let src = await blobToCanvas(file, opts.maxSide);
   if (transparentFraction(src) < ALREADY_CUT_OUT) {
     try {
-      const cut = await removeBg(await canvasToBlob(src), opts.model);
-      src = await blobToCanvas(cut, opts.maxSide);
+      const cut = await removeBg(await canvasToBlob(src), opts);
+      used = cut.backend;
+      src = await blobToCanvas(cut.blob, opts.maxSide);
     } catch (err) {
       console.warn('background removal failed', err);
       warning = describe(err);
@@ -62,5 +99,5 @@ export async function processImage(file: Blob, progress: Progress, opts: Process
   progress('fit');
   const art = await canvasToBlob(fitToArt(cropToContent(src)));
   report = () => {};
-  return { art, warning };
+  return { art, warning, backend: used };
 }
