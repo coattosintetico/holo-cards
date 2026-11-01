@@ -26,7 +26,8 @@ What was decided, by whom, and why. When a decision is reversed, edit its entry 
 - **Hand/table zones:** dropping above the hand leaves a card on the table; dropping in the hand inserts or reorders. Tapping returns the card.
 - **Remove via inspect bar** (works on touch); `Del` stays as a desktop shortcut.
 - **Pipeline in a Web Worker** with a main-thread fallback; queue processes one photo at a time.
-- **Smaller model on phones** (`isnet_quint8`) for download size and memory.
+- **Smaller model on phones** (`isnet_quint8`) for download size and memory, on the CPU path. WebGPU always uses `isnet_fp16`.
+- **Speed up inference client-side before adding a backend:** the owner found ~1 min per photo on the phone and floated a server that processes uploads in the background. Agreed to first try WebGPU, multi-threaded WASM (via a COOP/COEP service worker on Pages), a wake lock and a resumable queue, and to revisit the backend only if that's still too slow.
 - **Onboarding:** intro strip ("These are sample cards…") plus a pulsing **Add photos** button until first use. Pulsing is disabled under `prefers-reduced-motion`.
 - **Two-step Clear** (button turns into "Remove all?") instead of `confirm()`, which sandboxed frames block.
 - **Deploy on GitHub Pages** via Actions; a claude.ai artifact build is used for quick private tests.

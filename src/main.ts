@@ -2,6 +2,7 @@ import { App, isCoarse } from './app';
 import type { Card } from './card';
 import { Pipeline } from './pipeline/client';
 import { db, type CardRecord } from './store/db';
+import { keepAwake } from './wakeLock';
 import './style.css';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -25,7 +26,7 @@ const tiltBtn = $<HTMLButtonElement>('#tilt');
 const app = new App(canvas);
 (window as unknown as { app: App }).app = app;
 const coarse = isCoarse();
-const pipeline = new Pipeline({ model: coarse ? 'isnet_quint8' : 'isnet_fp16', maxSide: coarse ? 1600 : 2048 });
+const pipeline = new Pipeline({ model: coarse ? 'isnet_quint8' : 'isnet_fp16', gpu: true, maxSide: coarse ? 1600 : 2048 });
 
 // --------------------------------------------------------------- storage flags
 
@@ -78,6 +79,7 @@ app.events.onChange = refreshChrome;
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
 
 type Job = { file: Blob; card: Card };
+const awake = keepAwake();
 const queue: Job[] = [];
 let running = false;
 let batchTotal = 0;
@@ -85,6 +87,11 @@ let batchDone = 0;
 let batchAdded = 0;
 let batchWarnings = new Set<string>();
 let avgMs = 0;
+/** Set when the page is hidden mid-photo, so a suspended job doesn't skew the ETA. */
+let wasHidden = false;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) wasHidden = true;
+});
 
 function setStatus(main: string, sub = ''): void {
   statusText.textContent = main;
@@ -96,7 +103,8 @@ function stageText(stage: string, frac?: number): string {
     const pct = frac !== undefined ? ` ${Math.round(frac * 100)}%` : '';
     return `Downloading the background-removal model${pct} (first time only)`;
   }
-  if (stage === 'remove') return 'Removing background…';
+  if (stage === 'remove-gpu') return 'Removing background (GPU)…';
+  if (stage.startsWith('remove')) return 'Removing background…';
   if (stage === 'fit') return 'Fitting to the card…';
   return 'Reading image…';
 }
@@ -123,35 +131,55 @@ function addFiles(files: Iterable<Blob>): void {
 
   // Each photo joins the bottom of the deck (FIFO) showing a distorted
   // preview; it's drawn into the hand as soon as it's processed.
-  for (let i = 0; i < list.length; i++) {
-    const card = app.addPending(uid(), { deal: 0.1 + i * 0.09 });
-    void app.setPreview(card, list[i]);
-    queue.push({ file: list[i], card });
-  }
-  batchTotal += list.length;
+  // The photo is also saved, so the queue resumes after a reload or if the
+  // browser discards the tab while the phone is locked.
+  const now = Date.now();
+  list.forEach((file, i) => {
+    const card = enqueue(uid(), file, { deal: 0.1 + i * 0.09 });
+    db.pending.put({ id: card.id, file, created: now + i }).catch((e) => console.warn('could not save queued photo', e));
+  });
   void run();
 }
+
+function enqueue(id: string, file: Blob, opts: { deal?: number }): Card {
+  const card = app.addPending(id, opts);
+  void app.setPreview(card, file);
+  queue.push({ file, card });
+  batchTotal++;
+  return card;
+}
+
+const forget = (job: Job) => db.pending.remove(job.card.id).catch(() => {});
 
 async function run(): Promise<void> {
   if (running) return;
   running = true;
+  awake.hold();
   statusEl.classList.add('show');
   refreshChrome();
   while (queue.length) {
     const job = queue.shift()!;
+    if (!app.has(job.card)) {
+      // Removed while waiting (e.g. Clear): nothing to process.
+      batchDone++;
+      void forget(job);
+      continue;
+    }
     const idx = batchDone + 1;
     const head = () => (batchTotal > 1 ? `Processing ${idx} of ${batchTotal}` : 'Processing your photo');
     const eta = () => {
       const left = batchTotal - batchDone;
       return avgMs && left > 1 ? ` · about ${Math.ceil((avgMs * left) / 1000)} s left` : '';
     };
-    setStatus(head() + eta(), avgMs ? 'Removing the background can take a few seconds per photo.' : 'Removing the background can take a while. You can keep playing meanwhile.');
+    const lockHint = coarse ? ' Locking the phone pauses it.' : '';
+    setStatus(head() + eta(), (avgMs ? 'Removing the background can take a few seconds per photo.' : 'Removing the background can take a while. You can keep playing meanwhile.') + lockHint);
     const t0 = performance.now();
+    wasHidden = document.hidden;
     try {
       const { art, warning } = await pipeline.process(job.file, (stage, frac) => setStatus(head() + eta(), stageText(stage, frac)));
       if (warning) batchWarnings.add(warning);
       const ms = performance.now() - t0;
-      avgMs = avgMs ? avgMs * 0.6 + ms * 0.4 : ms;
+      if (!wasHidden) avgMs = avgMs ? avgMs * 0.6 + ms * 0.4 : ms;
       if (app.has(job.card)) {
         await app.resolvePending(job.card, art);
         const rec: CardRecord = { id: job.card.id, art, zone: 'hand', x: job.card.rest.x, y: job.card.rest.y, rot: job.card.rest.rot, order: job.card.order, created: Date.now() };
@@ -164,9 +192,11 @@ async function run(): Promise<void> {
       batchWarnings.add(`One photo couldn't be read (${(err as Error).message}).`);
       if (app.has(job.card)) app.discardPending(job.card);
     }
+    void forget(job);
     batchDone++;
   }
   running = false;
+  awake.release();
   statusEl.classList.remove('show');
   const summary = batchAdded === 1 ? '1 card added.' : `${batchAdded} cards added.`;
   say([summary, ...batchWarnings].join(' '), undefined, batchWarnings.size ? 7000 : 2600);
@@ -199,6 +229,14 @@ async function boot(): Promise<void> {
   } else if (!flag.get('added')) {
     await loadDemo().catch((e) => console.warn('demo load failed', e));
   }
+  // Photos queued in an earlier visit that never finished.
+  const done = new Set(saved.map((r) => r.id));
+  const pending = (await db.pending.all().catch(() => [])).filter((p) => {
+    if (done.has(p.id)) void db.pending.remove(p.id).catch(() => {}); // finished just before the tab died
+    return !done.has(p.id);
+  });
+  pending.forEach((p, i) => enqueue(p.id, p.file, { deal: 0.2 + i * 0.09 }));
+  if (pending.length) void run();
   refreshChrome();
 }
 
@@ -248,6 +286,7 @@ clearBtn.addEventListener('click', async () => {
   }
   disarm();
   await app.clearAll();
+  await db.pending.clear().catch(() => {});
   refreshChrome();
 });
 

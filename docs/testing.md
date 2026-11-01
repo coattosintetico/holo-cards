@@ -9,6 +9,8 @@ No unit tests. Changes are verified by typecheck plus a production build plus **
 - Start servers as background tasks (they time out after a while; restart when needed):
   - dev: `npx vite --port 5173 --strictPort`
   - prod: `npm run build && npx vite preview --port 4173 --strictPort` (use this to check the worker and lazy chunks in the real bundle)
+  - service worker path (as on Pages, no COOP/COEP from the server): `cd dist && python3 -m http.server 4173`. The first load registers `coi-sw.js` and reloads once; afterwards `crossOriginIsolated` is `true`. Vite dev/preview send the headers themselves, so the worker isn't used there.
+  - resumable queue: `setInputFiles('#file', …)`, reload right away, check the cards still arrive and the `pending` store (IndexedDB v2) ends empty.
 - **Don't `pkill -f vite`** from a shell whose own command line contains "vite": it kills the shell itself.
 - Keep test scripts and screenshots in the session scratchpad, not in the repo.
 

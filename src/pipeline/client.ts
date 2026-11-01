@@ -35,7 +35,7 @@ export class Pipeline {
     if (!job) return;
     if (m.type === 'progress') return job.progress(m.stage, m.frac);
     this.jobs.delete(m.id);
-    if (m.type === 'done') job.resolve({ art: m.art, warning: m.warning });
+    if (m.type === 'done') job.resolve({ art: m.art, warning: m.warning, backend: m.backend });
     else job.reject(new Error(m.message));
   }
 
