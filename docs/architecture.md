@@ -71,7 +71,7 @@ Euler order is `'XYZ'`, so in-plane rotation applies first and tilt is about the
   - The hover branch skips the held card. It isn't in the hand slots while held, so its targets aren't reset each frame and the hover's relative `y += 0.42` would accumulate (this was the "card flies off the top" bug).
 - **Drop:** in the hand zone it joins the hand at the insertion index; above it, it stays on the table at its position with a small random rotation (`rest`). A tap (no move, < 280 ms) returns the card to where it was.
 - **Table cards** saved on a larger screen are clamped into view.
-- **Inspect:** centred, `z 3.2`, scale `min(1.55, fit-to-screen)`, tilt follows the pointer (`±0.5`) or phone tilt; other cards dimmed.
+- **Inspect:** centred, `z 3.2`, scale `min(1.55, fit-to-screen)`, other cards dimmed. Tilt (`±0.5` rad) is **relative to the gesture start** so the card always opens flat: mouse, relative to the cursor position when inspect opened (`inspectBase`, gain 1.6 per NDC unit); touch, relative to the touch-down point, only while a finger is down, settling back to flat on release; phone tilt, when enabled, overrides both.
 - **Phone tilt** (when enabled): all hand and table cards get a subtle tilt (`±0.15`), and the inspected card follows it fully.
 
 ## Input (`App`)
@@ -79,7 +79,7 @@ Euler order is `'XYZ'`, so in-plane rotation applies first and tilt is about the
 - Pointer events only (mouse and touch unified); non-primary pointers are ignored; `pointercancel` is treated as up.
 - Touch has no hover: the hover state is set on press and cleared on release, and hover ticks are mouse-only.
 - **Double-tap / double-click** detection is custom (two taps < 380 ms, < 30 px apart, same card); the native `dblclick` is not used.
-- Inspect is dismissed by tapping the canvas (> 300 ms after opening), `Esc`, or the Close button. Events from UI buttons never dismiss it (target check).
+- Inspect is dismissed by a **tap** on the canvas (< 10 px travel, < 400 ms, and > 300 ms after opening), `Esc`, or the Close button. Releasing after a tilt drag does not dismiss it. Events from UI buttons never dismiss it (target check).
 - `Del` / `Backspace` removes the inspected or hovered card.
 - Haptics: `navigator.vibrate` (6 ms pick-up, 10 ms drop; Android only).
 
