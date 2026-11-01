@@ -26,7 +26,10 @@ const tiltBtn = $<HTMLButtonElement>('#tilt');
 const app = new App(canvas);
 (window as unknown as { app: App }).app = app;
 const coarse = isCoarse();
-const pipeline = new Pipeline({ model: coarse ? 'isnet_quint8' : 'isnet_fp16', gpu: true, maxSide: coarse ? 1600 : 2048 });
+// WebGPU is opt-in (`?gpu`): on the owner's phone it produced near-transparent
+// masks and stalled rendering (the GPU is shared with WebGL). See image-pipeline.md.
+const gpu = new URLSearchParams(location.search).has('gpu');
+const pipeline = new Pipeline({ model: coarse ? 'isnet_quint8' : 'isnet_fp16', gpu, maxSide: coarse ? 1600 : 2048 });
 
 // --------------------------------------------------------------- storage flags
 
