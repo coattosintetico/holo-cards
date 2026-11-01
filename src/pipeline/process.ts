@@ -6,7 +6,7 @@ export type Model = 'isnet' | 'isnet_fp16' | 'isnet_quint8';
 export interface ProcessOptions {
   /** Model for the CPU (WASM) path. The WebGPU path always uses `isnet_fp16`. */
   model: Model;
-  /** Try WebGPU first and fall back to the CPU if it's missing or fails. */
+  /** Try WebGPU first and fall back to the CPU if it's missing or fails. Off by default (`?gpu` opts in). */
   gpu: boolean;
   /** Longest side the source is downscaled to before processing. */
   maxSide: number;
