@@ -4,9 +4,9 @@ import { Card } from './card';
 import { CARD_H, CARD_W } from './config';
 import { DeviceTilt } from './interaction/tilt';
 import { stepSprings } from './physics/spring';
-import { blobToCanvas } from './pipeline/crop';
+import { blobToCanvas, coverToArt, type Canvas } from './pipeline/crop';
 import { createTable } from './render/table';
-import { db, type CardRecord } from './store/db';
+import { db, type CardRecord, type Zone } from './store/db';
 
 const FOV = 35;
 /** Minimum visible height of the table in world units (desktop look). */
@@ -17,6 +17,10 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const TAP_MS = 280;
 const TAP_PX = 10;
 const DOUBLE_TAP_MS = 380;
+/** Only the top few deck cards are drawn (the rest are hidden under them). */
+const DECK_VISIBLE = 6;
+/** Height the deck floats at (world units). */
+const DECK_Z = 0.7;
 
 export const isCoarse = () => matchMedia('(pointer: coarse)').matches;
 
@@ -43,6 +47,8 @@ export class App {
   private cards: Card[] = [];
   /** Hand, left to right. Table cards are the rest. */
   private hand: Card[] = [];
+  /** Photos waiting to be processed, top first. The top one is being processed. */
+  private deck: Card[] = [];
   private topOrder = 0;
 
   private pointer = { nx: 0, ny: 0, vx: 0, vy: 0, inside: false, touch: false, down: false };
@@ -58,6 +64,7 @@ export class App {
   /** Press inside inspect mode, to tell a dismissing tap from a tilt drag. */
   private inspectPress: { x: number; y: number; t: number } | null = null;
   private time = 0;
+  private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   private last = performance.now();
   private saveTimer = 0;
   private raycaster = new THREE.Raycaster();
@@ -136,6 +143,27 @@ export class App {
     return -this.viewH / 2 + CARD_H * 1.12;
   }
 
+  /**
+   * Deck size and resting centre: top left, below the brand and hint lines.
+   * The deck floats at DECK_Z, so the position is divided by the perspective
+   * factor to keep its on-screen margins.
+   */
+  private get deckBase(): { x: number; y: number; s: number } {
+    const narrow = this.viewW < CARD_W * 5;
+    const s = narrow ? 0.62 : 0.78;
+    const camZ = this.camera.position.z;
+    const persp = camZ / (camZ - DECK_Z);
+    const pxToWorld = this.viewH / window.innerHeight;
+    const topPx = narrow ? 214 : 96; // below the hint (desktop) or the full-width toasts (phones)
+    const halfW = CARD_W * s * 0.5 * persp;
+    const halfH = CARD_H * s * 0.5 * persp;
+    return {
+      x: (-this.viewW / 2 + halfW + Math.max(26 * pxToWorld, 0.3)) / persp,
+      y: (this.viewH / 2 - topPx * pxToWorld - halfH) / persp,
+      s,
+    };
+  }
+
   /** Project the pointer onto the plane z = planeZ (world units). */
   private pointerAt(planeZ: number): THREE.Vector3 {
     this.raycaster.setFromCamera(new THREE.Vector2(this.pointer.nx, this.pointer.ny), this.camera);
@@ -149,9 +177,11 @@ export class App {
       if (c === this.inspecting) return 1e6;
       if (this.drag?.card === c) return 1e5;
       if (c.zone === 'hand') return 1e4 + this.hand.indexOf(c) + (c === this.hovered ? 500 : 0);
+      if (c.zone === 'deck') return 5e3 - this.deck.indexOf(c);
+      if (c.zone === 'out') return 4e3;
       return c.order;
     };
-    return [...this.cards].sort((a, b) => key(a) - key(b));
+    return this.cards.filter((c) => c.zone !== 'deck' || this.deck.indexOf(c) < DECK_VISIBLE).sort((a, b) => key(a) - key(b));
   }
 
   private pick(): { card: Card; u: number; v: number } | null {
@@ -190,10 +220,12 @@ export class App {
   }
 
   private setHovered(c: Card | null): void {
+    const busy = c?.zone === 'deck';
+    if (c && c.zone !== 'hand' && c.zone !== 'table') c = null;
+    if (!this.drag && !this.inspecting) this.canvas.style.cursor = busy ? 'not-allowed' : c ? 'grab' : 'default';
     if (c === this.hovered) return;
     this.hovered = c;
     if (c && !this.pointer.touch) this.sfx.hover();
-    this.canvas.style.cursor = c ? 'grab' : 'default';
   }
 
   private onDown(e: PointerEvent): void {
@@ -212,6 +244,8 @@ export class App {
     const hit = this.pick();
     if (!hit) return;
     const card = hit.card;
+    if (card.zone === 'deck') return this.refuseDeck();
+    if (card.zone === 'out') return;
     this.setHovered(card);
     // Measure the grab offset on the card's current plane so perspective
     // doesn't shift the card when it starts following the pointer.
@@ -334,7 +368,10 @@ export class App {
   // ---------------------------------------------------------------- cards
 
   private async makeTexture(art: Blob): Promise<THREE.Texture> {
-    const canvas = await blobToCanvas(art);
+    return this.canvasTexture(await blobToCanvas(art));
+  }
+
+  private canvasTexture(canvas: Canvas): THREE.Texture {
     const tex = new THREE.CanvasTexture(canvas as unknown as HTMLCanvasElement);
     tex.colorSpace = THREE.NoColorSpace;
     tex.minFilter = THREE.LinearMipmapLinearFilter;
@@ -349,6 +386,20 @@ export class App {
   }
 
   private place(card: Card, opts: { deal?: number }): void {
+    if (card.zone === 'deck') {
+      // Tossed onto the deck from off-screen, top left.
+      const b = this.deckBase;
+      card.x.snap(-this.viewW / 2 - CARD_W);
+      card.y.snap(b.y + CARD_H * 0.6);
+      card.rot.snap(0.7);
+      card.z.snap(1.2);
+      card.scale.snap(b.s);
+      card.delay = opts.deal ?? 0;
+      this.sfx.deal(card.delay);
+      this.cards.push(card);
+      this.deck.push(card);
+      return;
+    }
     if (opts.deal !== undefined) {
       // Fly in from off-screen right, spinning, then settle into the hand.
       card.x.snap(this.viewW / 2 + CARD_W * 1.5);
@@ -381,23 +432,77 @@ export class App {
     return card;
   }
 
-  /** A blank, shimmering card that holds a hand slot while its photo is processed. */
+  /**
+   * A queued photo: goes to the bottom of the deck (FIFO) with a blank print
+   * until `setPreview` swaps in a low-res, distorted preview of the photo.
+   */
   addPending(id: string, opts: { deal?: number } = {}): Card {
     const card = new Card(id, this.blankTexture(), null, this.backdrop);
     card.setBackdrop(this.backdrop, this.bufW, this.bufH);
     card.isPending = true;
     card.pending.snap(1);
+    card.zone = 'deck';
     this.place(card, opts);
     return card;
   }
 
+  /** Print a quick cover-fitted preview of the photo on a queued card. */
+  async setPreview(card: Card, file: Blob): Promise<void> {
+    let canvas: Canvas;
+    try {
+      canvas = await coverToArt(file);
+    } catch {
+      return; // undecodable here (e.g. HEIC): keep the blank print
+    }
+    if (!this.cards.includes(card) || !card.isPending) return;
+    card.setTexture(this.canvasTexture(canvas));
+  }
+
+  /** Processing finished: swap in the art and draw the card from the deck into the hand. */
   async resolvePending(card: Card, art: Blob): Promise<void> {
     if (!this.cards.includes(card)) return; // removed meanwhile
-    card.setArt(await this.makeTexture(art), art);
-    card.scale.impulse(2.2);
-    card.z.impulse(2);
-    card.rot.impulse((Math.random() - 0.5) * 3);
+    const tex = await this.makeTexture(art);
+    if (!this.cards.includes(card)) return tex.dispose();
+    card.setArt(tex, art);
+    this.deck = this.deck.filter((c) => c !== card);
+    card.zone = 'hand';
+    this.hand.push(card);
+    // Arc up off the deck and spin into the hand (the springs do the travel).
+    card.z.impulse(7);
+    card.rot.impulse(-2.4);
+    card.scale.impulse(1.2);
+    this.sfx.deal();
     this.scheduleSave();
+  }
+
+  /** Processing failed: the card is tossed off the table, then removed. */
+  discardPending(card: Card): void {
+    if (!this.cards.includes(card)) return;
+    this.deck = this.deck.filter((c) => c !== card);
+    card.zone = 'out';
+    card.isPending = false;
+    card.loading.target = 0;
+    card.x.target = -this.viewW / 2 - CARD_W * 1.5;
+    card.y.target = card.y.value + 1.2;
+    card.rot.target = 1.2;
+    card.z.target = 0.8;
+    this.sfx.remove();
+    window.setTimeout(() => {
+      if (this.cards.includes(card)) void this.removeCard(card, { silent: true });
+    }, 900);
+  }
+
+  /** The deck is busy: shake it off and knock. */
+  private refuseDeck(): void {
+    this.deck.forEach((c, i) => {
+      const k = 1 / (1 + i * 0.6);
+      c.x.impulse(3.2 * k * (i % 2 ? -1 : 1));
+      c.rot.impulse(-2.2 * k);
+      c.scale.impulse(-0.9 * k);
+      c.z.impulse(-1.5 * k);
+    });
+    this.sfx.blocked();
+    navigator.vibrate?.([8, 50, 8]);
   }
 
   has(card: Card): boolean {
@@ -407,6 +512,7 @@ export class App {
   private detach(card: Card): void {
     this.cards = this.cards.filter((c) => c !== card);
     this.hand = this.hand.filter((c) => c !== card);
+    this.deck = this.deck.filter((c) => c !== card);
     if (this.hovered === card) this.setHovered(null);
     if (this.inspecting === card) {
       this.inspecting = null;
@@ -453,7 +559,7 @@ export class App {
 
   records(): CardRecord[] {
     return this.cards
-      .filter((c) => !c.isPending && c.art)
+      .filter((c): c is Card & { zone: Zone } => !c.isPending && !!c.art && (c.zone === 'hand' || c.zone === 'table'))
       .map((c) => ({
         id: c.id,
         art: c.art!,
@@ -529,6 +635,7 @@ export class App {
     const yLim = this.viewH / 2 - CARD_H * 0.35;
     for (const c of this.cards) {
       c.dim.target = this.inspecting && this.inspecting !== c ? 1 : 0;
+      c.shadowMul = 1;
       if (c.zone === 'table' && c !== drag?.card) {
         // Saved positions from a bigger screen stay reachable.
         c.x.target = clamp(c.rest.x, -xLim, xLim);
@@ -540,6 +647,28 @@ export class App {
         c.tiltY.target = tilt ? tilt.x * 0.15 : 0;
         c.hover.target = 0;
       }
+    }
+
+    // Deck: floats in place, drifting and slowly rocking. Lower cards follow
+    // the top one with a small lag, so the pile shears a little.
+    if (this.deck.length) {
+      const b = this.deckBase;
+      const calm = this.reducedMotion.matches ? 0.35 : 1;
+      this.deck.forEach((c, i) => {
+        const t = this.time - i * 0.18;
+        const k = Math.min(i, DECK_VISIBLE);
+        c.x.target = b.x + (Math.sin(t * 0.53) * 0.07 + Math.sin(t * 0.31 + 1.3) * 0.04) * calm + k * 0.035 * b.s;
+        c.y.target = b.y + (Math.cos(t * 0.41) * 0.06 + Math.sin(t * 0.27 + 0.4) * 0.03) * calm - k * 0.05 * b.s;
+        c.z.target = DECK_Z + Math.sin(t * 0.7) * 0.06 * calm - k * 0.03;
+        c.rot.target = (i ? c.deckRot : 0) + Math.sin(t * 0.23) * 0.035 * calm;
+        c.tiltX.target = Math.sin(t * 0.37 + 0.8) * 0.13 * calm;
+        c.tiltY.target = Math.cos(t * 0.29) * 0.15 * calm;
+        c.scale.target = b.s;
+        c.hover.target = 0;
+        c.loading.target = i === 0 ? 1 : 0;
+        c.shadowMul = i === 0 ? 0.65 : 0.3;
+        if (i > 0) c.dim.target = Math.max(c.dim.target, 0.35);
+      });
     }
 
     // Hovered: lift and lean towards the pointer. A held card is handled by

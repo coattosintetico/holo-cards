@@ -35,15 +35,15 @@ There are no unit tests. Verify visually with headless Playwright; see `docs/tes
 
 | Path | Role |
 | --- | --- |
-| `src/main.ts` | DOM/UI glue: upload queue, status/notice toasts, intro strip, sample cards + undo, inspect bar, drag-drop/paste, boot. |
-| `src/app.ts` | `App`: renderer, camera, responsive scale, input (mouse + touch), hand/table layout, inspect, render loop, persistence scheduling. |
-| `src/card.ts` | `Card`: springs + meshes (card, shadow) + per-card scenes; `sync()` pushes springs into transforms; `hit()` hit-test; pending→real `setArt()`. |
+| `src/main.ts` | DOM/UI glue: upload queue (feeds the deck), status/notice toasts, intro strip, sample cards + undo, inspect bar, drag-drop/paste, boot. |
+| `src/app.ts` | `App`: renderer, camera, responsive scale, input (mouse + touch), hand/table/deck layout, deck → hand draw, inspect, render loop, persistence scheduling. |
+| `src/card.ts` | `Card`: springs + meshes (card, shadow) + per-card scenes; `sync()` pushes springs into transforms; `hit()` hit-test; blank → preview `setTexture()` → real `setArt()`. |
 | `src/render/cardMaterials.ts` | Plastic card shader and shadow shader. |
 | `src/render/table.ts` | Procedural linen tablecloth shader. |
 | `src/render/glsl.ts` | Shared GLSL snippets (noise, rounded-box SDF). |
 | `src/physics/spring.ts` | Damped spring with fixed 240 Hz substeps. |
 | `src/interaction/tilt.ts` | Phone tilt (DeviceOrientation) normalised to [-1, 1]. |
-| `src/pipeline/*` | Photo → card art: `client.ts` (worker wrapper and fallback), `worker.ts`, `process.ts` (background removal), `crop.ts` (OffscreenCanvas crop/fit). |
+| `src/pipeline/*` | Photo → card art: `client.ts` (worker wrapper and fallback), `worker.ts`, `process.ts` (background removal), `crop.ts` (OffscreenCanvas crop/fit, deck preview `coverToArt`). |
 | `src/audio/sfx.ts` | All sounds, synthesised in code. |
 | `src/store/db.ts` | IndexedDB `holo-cards` / store `cards` (`CardRecord`). |
 | `src/config.ts` | Card geometry constants (63×88 aspect, margins, art rect). |

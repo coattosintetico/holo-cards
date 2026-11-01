@@ -5,9 +5,9 @@ Photo → transparent, content-filling card art.
 ## Flow
 
 1. **Upload sources** (`main.ts`): Add photos button / file input (`accept="image/*"`, multiple), drag-and-drop anywhere, paste.
-2. `addFiles()`: if only sample cards are showing, they are removed first (with an Undo notice). For each file, a **pending placeholder card** is dealt into the hand right away (`app.addPending`) and a job is queued.
+2. `addFiles()`: if only sample cards are showing, they are removed first (with an Undo notice). For each file, a **pending card** is tossed onto the bottom of the **deck** (top left) right away (`app.addPending`) and a job is queued. `app.setPreview` decodes a small, cover-fitted preview of the photo (`coverToArt`, ~384 px, main thread via `createImageBitmap` with `resizeWidth`) and prints it on the card, distorted by the pending shader; if the browser can't decode it (e.g. HEIC outside Safari) the card stays blank. The deck order equals the queue order, so the top card is always the one being processed.
 3. `run()` processes the queue **one photo at a time**, updating the status toast: "Processing i of N · about X s left" plus a stage line ("Downloading the background-removal model NN % (first time only)", "Removing background…", "Fitting to the card…"). ETA is an exponential moving average of per-photo time.
-4. When done: `app.resolvePending(card, art)` swaps the texture in (pop impulse plus chime) and the record is saved. On failure the placeholder is removed silently and the error is listed in the final notice.
+4. When done: `app.resolvePending(card, art)` swaps the art in and **draws the card from the deck into the hand** (right end), the chime plays and the record is saved. On failure the card is discarded off the left edge (`app.discardPending`) and the error is listed in the final notice.
 5. The final notice summarises: "N cards added." plus any warnings.
 
 ## Worker (`pipeline/client.ts`, `pipeline/worker.ts`)

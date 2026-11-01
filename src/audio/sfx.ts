@@ -147,6 +147,15 @@ export class Sfx {
     this.tone(rand(160, 180), 0.06, 0.12, { to: 90, delay: delay + 0.14 });
   }
 
+  /** Deck is busy: two muffled knocks, like a locked drawer. */
+  blocked(): void {
+    if (!this.ready) return;
+    for (const d of [0, 0.09]) {
+      this.tone(rand(105, 120), 0.07, 0.22, { to: 70, delay: d });
+      this.burst(0.03, 0.12, { type: 'lowpass', f: 700, q: 0.7 }, d);
+    }
+  }
+
   /** New card created: soft two-note chime. */
   chime(): void {
     if (!this.ready) return;

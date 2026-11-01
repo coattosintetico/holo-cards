@@ -20,7 +20,7 @@ Works on desktop and phones (WebGL2 required).
 
 - **Add photos** (button, drag & drop anywhere, or paste). The background is removed automatically, the subject is cropped to its content and fitted to the card.
   Images that already have transparency skip the ML step.
-- Photos are processed in a background worker: a shimmering placeholder card holds the slot while you keep playing. The first photo downloads the model once (~40–80 MB); after that each photo takes a few seconds.
+- Photos are processed in a background worker: each photo waits in a floating deck at the top left (shown blurred and warped), and is drawn into your hand as soon as it's ready, while you keep playing. The first photo downloads the model once (~40–80 MB); after that each photo takes a few seconds.
 - Your first upload replaces the sample cards (with Undo).
 - **Drag** cards around (press & drag on touch). Drop above the hand to leave a card on the table; drop into the hand to reorder.
 - **Double-click / double-tap** to inspect a card up close: it tilts with the mouse, your finger, or, on phones, with **Tilt with phone** (motion sensor; iOS asks for permission). From there you can **Remove** it.

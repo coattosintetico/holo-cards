@@ -121,8 +121,11 @@ function addFiles(files: Iterable<Blob>): void {
     });
   }
 
+  // Each photo joins the bottom of the deck (FIFO) showing a distorted
+  // preview; it's drawn into the hand as soon as it's processed.
   for (let i = 0; i < list.length; i++) {
     const card = app.addPending(uid(), { deal: 0.1 + i * 0.09 });
+    void app.setPreview(card, list[i]);
     queue.push({ file: list[i], card });
   }
   batchTotal += list.length;
@@ -151,7 +154,7 @@ async function run(): Promise<void> {
       avgMs = avgMs ? avgMs * 0.6 + ms * 0.4 : ms;
       if (app.has(job.card)) {
         await app.resolvePending(job.card, art);
-        const rec: CardRecord = { id: job.card.id, art, zone: job.card.zone, x: job.card.rest.x, y: job.card.rest.y, rot: job.card.rest.rot, order: job.card.order, created: Date.now() };
+        const rec: CardRecord = { id: job.card.id, art, zone: 'hand', x: job.card.rest.x, y: job.card.rest.y, rot: job.card.rest.rot, order: job.card.order, created: Date.now() };
         await db.put(rec);
         app.sfx.chime();
         batchAdded++;
@@ -159,7 +162,7 @@ async function run(): Promise<void> {
     } catch (err) {
       console.error(err);
       batchWarnings.add(`One photo couldn't be read (${(err as Error).message}).`);
-      if (app.has(job.card)) await app.removeCard(job.card, { silent: true });
+      if (app.has(job.card)) app.discardPending(job.card);
     }
     batchDone++;
   }

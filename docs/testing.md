@@ -51,6 +51,24 @@ await touch('touchEnd');
 - `public/demo/*.png`: transparent art placed off-centre (exercises crop/fit without the ML step).
 - For the background-removal path, use any opaque image (e.g. a creature drawn on a gradient). In the sandbox the model download is blocked, so the expected result is the fallback card plus the notice "Couldn't download the background-removal model…".
 
+## Deck / processing tests
+
+Background removal fails immediately in the sandbox (model download blocked), so the deck empties too fast to see. Two ways to slow it:
+
+- Drive `App` directly: `app.addPending(id, { deal })`, `app.setPreview(card, blob)`, later `app.resolvePending(card, artBlob)` or `app.discardPending(card)`.
+- Real upload flow: wrap `Worker` in an init script so `done`/`error` replies are delayed once a flag is set (set it right before `setInputFiles`, otherwise the demo-card boot is delayed too):
+
+```js
+await ctx.addInitScript(() => {
+  const W = window.Worker;
+  window.Worker = class extends W {
+    set onmessage(f) { super.onmessage = (e) => (window.__slow && /done|error/.test(e.data.type) ? setTimeout(() => f(e), 2500) : f(e)); }
+  };
+});
+```
+
+Use opaque photos (e.g. JPEG gradients); transparent PNGs skip background removal.
+
 ## Can't be verified in the sandbox
 
 Real background-removal output and speed, real-device touch feel, phone tilt, haptics, iOS audio. Ask the owner to check those on the Pages deployment.
